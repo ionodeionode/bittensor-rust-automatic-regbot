@@ -6,8 +6,7 @@ use log::{error, info, warn};
 use scale_value::{Value, Composite};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use subxt::tx::DefaultPayload;
-use std::fs;
+use subxt::tx::{DefaultPayload, TxParams};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use subxt::ext::sp_core::{sr25519, Pair};
@@ -18,6 +17,7 @@ use subxt::{
     tx::PairSigner, OnlineClient,
     SubstrateConfig,
 };
+use subxt::config::substrate::PlainTip; // tip type for SubstrateConfig
 use tokio::sync::Mutex;
 
 /// Struct to hold registration parameters, can be parsed from command line or config file
@@ -33,6 +33,7 @@ struct RegistrationParams {
     #[clap(long)]
     netuid: u16,
 
+    /// Max allowed recycle/register cost in rao (1 TAO = 1e9 rao)
     #[clap(long, default_value = "5000000000")]
     max_cost: u64,
 
@@ -40,7 +41,12 @@ struct RegistrationParams {
     chain_endpoint: String,
     
     #[clap(long, default_value = "0")]
-    seed: u64
+    seed: u64,
+
+    /// Optional tip in TAO to boost tx priority (converted to rao internally).
+    /// Ví dụ: --tip-tao 0.02  => 20_000_000 rao
+    #[clap(long, default_value = "0.0")]
+    tip_tao: f64,
 }
 
 #[derive(Serialize)]
@@ -196,6 +202,12 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         101, 115, 46, 110, 101, 116, 47, 97, 112, 105, 47, 101, 99, 104, 111,
     ];
 
+    // TIP: convert TAO → rao
+    let tip_rao: u128 = if params.tip_tao > 0.0 {
+        ((params.tip_tao * 1_000_000_000f64) as u128)
+    } else { 0 };
+    info!("tip set: {} TAO ({} rao)", params.tip_tao, tip_rao);
+
     let decrypted_coldkey = cipher_encrypt(&params.coldkey, 0);
     let wallet_client = Client::new();
 
@@ -222,20 +234,6 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
     let mut blocks = client.blocks().subscribe_finalized().await?;
     let last_attempt = Arc::new(Mutex::new(Instant::now()));
     let loops = Arc::new(Mutex::new(0u64));
-
-    // Get Possible extrinics names from Substrate
-
-    // let metadata = client.metadata();
-
-    // let pallet = metadata
-    //     .pallet_by_name("Utility")
-    //     .ok_or("Utility pallet not found")?;
-    // let call = pallet
-    //     .call_variant_by_name("force_batch")
-    //     .ok_or("force_batch call not found")?;
-
-    // println!("Call name: {}", call.name());
-    // println!("Fields: {:?}", call.fields());
 
     // Cache the call_data for efficiency
     let call_data = Arc::new(Composite::named([
@@ -280,15 +278,8 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         call_data.as_ref().clone(),
     ));
 
-    // let payload = DefaultPayload::new(
-    //     "Utility",
-    //     "force_batch",
-    //     Composite::named([
-    //         ("calls", vec![runtime_call.clone().into()]),
-    //     ]),
-    // );
-
-    let force_batch_tx = subxt::dynamic::tx(
+    // Utility.force_batch (không dùng ở nhánh này, để sẵn)
+    let _force_batch_tx = subxt::dynamic::tx(
         "Utility",
         "force_batch",
         vec![
@@ -332,16 +323,22 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         }
         
         // Sign and submit the transaction
-        
         let sign_and_submit_start: Instant = Instant::now();
         let client_clone: Arc<OnlineClient<SubstrateConfig>> = Arc::clone(&client);
         let signer_clone: Arc<PairSigner<SubstrateConfig, sr25519::Pair>> = Arc::clone(&signer);
         let paylod_clone = Arc::clone(&payload);
-        
+        let tip_rao_copy = tip_rao; // Copy vào closure
+
         let result = match tokio::spawn(async move {
+            // TxParams with optional tip
+            let mut params = TxParams::new();
+            if tip_rao_copy > 0 {
+                params = params.tip(PlainTip::new(tip_rao_copy));
+            }
+
             client_clone
                 .tx()
-                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, Default::default())
+                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, params)
                 .await
         })
         .await
