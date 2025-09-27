@@ -219,7 +219,8 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 
     let signer = Arc::new(PairSigner::new(coldkey.clone()));
 
-    let mut blocks = client.blocks().subscribe_finalized().await?;
+   // let mut blocks = client.blocks().subscribe_finalized().await?;
+    let mut blocks = client.blocks().subscribe_best().await?;
     let last_attempt = Arc::new(Mutex::new(Instant::now()));
     let loops = Arc::new(Mutex::new(0u64));
 
