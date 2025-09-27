@@ -6,7 +6,7 @@ use log::{error, info, warn};
 use scale_value::{Value, Composite};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use subxt::tx::{DefaultPayload, TxParams};
+use subxt::tx::DefaultPayload;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use subxt::ext::sp_core::{sr25519, Pair};
@@ -17,7 +17,7 @@ use subxt::{
     tx::PairSigner, OnlineClient,
     SubstrateConfig,
 };
-use subxt::config::substrate::PlainTip; // tip type for SubstrateConfig
+use subxt::config::substrate::{SubstrateExtrinsicParamsBuilder, PlainTip}; // ✅ đúng cho SubstrateConfig
 use tokio::sync::Mutex;
 
 /// Struct to hold registration parameters, can be parsed from command line or config file
@@ -56,10 +56,6 @@ struct BittensorWallet {
 }
 
 /// Returns the current date and time in Eastern Time Zone
-///
-/// # Returns
-///
-/// A `String` representing the current date and time in the format "YYYY-MM-DD HH:MM:SS TimeZone"
 fn get_formatted_date_now() -> String {
     let now = chrono::Utc::now();
     let eastern_time = now.with_timezone(&chrono_tz::US::Eastern);
@@ -104,7 +100,6 @@ async fn parse_batch_results(
 
                 match (pallet_name, event_name) {
                     ("Utility", "BatchInterrupted") => {
-                        // Use field_values() instead of as_event()
                         match event.field_values() {
                             Ok(values) => {
                                 error!("Batch interrupted at call {}: {:?}", call_index, values);
@@ -127,7 +122,6 @@ async fn parse_batch_results(
                         break;
                     }
                     ("Utility", "ItemFailed") => {
-                        // Use field_values() for ItemFailed as well
                         let error_msg = match event.field_values() {
                             Ok(values) => format!("Call {} failed: {:?}", call_index, values),
                             Err(_) => format!("Call {} failed with unknown error", call_index),
@@ -138,7 +132,6 @@ async fn parse_batch_results(
                         call_index += 1;
                     }
                     ("Utility", "ItemCompleted") => {
-                        // Individual call completed successfully
                         if !current_call_events.is_empty() {
                             results.push(BatchCallResult::Success(current_call_events.clone()));
                             current_call_events.clear();
@@ -148,8 +141,6 @@ async fn parse_batch_results(
                     ("Utility", "BatchCompleted") => {
                         info!("All batch calls completed successfully");
                     }
-
-                    // Your business logic events
                     ("SubtensorModule", event_name) => {
                         current_call_events.push(format!("{}::{}", pallet_name, event_name));
                         info!("📝 SubtensorModule event: {}", event_name);
@@ -162,7 +153,6 @@ async fn parse_batch_results(
                         Err(_) => error!("❌ Extrinsic failed"),
                     },
                     _ => {
-                        // Other events can be logged or ignored
                         info!("Other event: {}::{}", pallet_name, event_name);
                         current_call_events.push(format!("{}::{}", pallet_name, event_name));
                     }
@@ -175,7 +165,6 @@ async fn parse_batch_results(
     }
 
     info!("📝 Processed {} events", event_index);
-    // Handle the last call if there are remaining events
     if !current_call_events.is_empty() {
         results.push(BatchCallResult::Success(current_call_events));
     }
@@ -184,15 +173,6 @@ async fn parse_batch_results(
 }
 
 /// Attempts to register a hotkey on the blockchain
-///
-/// # Arguments
-///
-/// * `params` - A reference to `RegistrationParams` containing registration details
-///
-/// # Returns
-///
-/// A `Result` which is `Ok` if registration is successful, or an `Err` containing the error message
-// TODO: Parse event and decode Registered event
 async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize client connection to the blockchain
     let client = Arc::new(OnlineClient::<SubstrateConfig>::from_url(&params.chain_endpoint).await?);
@@ -204,7 +184,7 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 
     // TIP: convert TAO → rao
     let tip_rao: u128 = if params.tip_tao > 0.0 {
-        ((params.tip_tao * 1_000_000_000f64) as u128)
+        (params.tip_tao * 1_000_000_000f64) as u128
     } else { 0 };
     info!("tip set: {} TAO ({} rao)", params.tip_tao, tip_rao);
 
@@ -327,18 +307,18 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         let client_clone: Arc<OnlineClient<SubstrateConfig>> = Arc::clone(&client);
         let signer_clone: Arc<PairSigner<SubstrateConfig, sr25519::Pair>> = Arc::clone(&signer);
         let paylod_clone = Arc::clone(&payload);
-        let tip_rao_copy = tip_rao; // Copy vào closure
+        let tip_rao_copy = tip_rao; // capture tip value
 
         let result = match tokio::spawn(async move {
-            // TxParams with optional tip
-            let mut params = TxParams::new();
+            // ✅ Dùng SubstrateExtrinsicParamsBuilder + PlainTip
+            let mut params_builder = SubstrateExtrinsicParamsBuilder::new();
             if tip_rao_copy > 0 {
-                params = params.tip(PlainTip::new(tip_rao_copy));
+                params_builder = params_builder.tip(PlainTip::new(tip_rao_copy));
             }
 
             client_clone
                 .tx()
-                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, params)
+                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, params_builder)
                 .await
         })
         .await
@@ -380,46 +360,7 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
                 error!("Registration failed: {:?}", e);
                 // Continue to next iteration
             }
-            /*
-                Plase Uncomment this part when you are using Utility.batch or Utility.force_batch
-            */
-
-            // Ok(events) => {
-            //     let finalization_duration = finalization_start.elapsed();
-            //     info!("🎯 Batch transaction finalized");
-            //     info!(
-            //         "⏱️ wait_for_finalized_success took {:?}",
-            //         finalization_duration
-            //     );
-
-            //     // Parse the results of individual calls
-            //     let call_results = parse_batch_results(&events, 1).await?;
-            //     let mut failure_count = 0;
-
-            //     for (i, result) in call_results.iter().enumerate() {
-            //         match result {
-            //             BatchCallResult::Success(events) => {
-            //                 info!("✅ Call {} succeeded with {} events", i, events.len());
-            //                 for event in events {
-            //                     info!("  Event: {:?}", event);
-            //                 }
-            //             }
-            //             BatchCallResult::Failed(error) => {
-            //                 failure_count += 1;
-            //                 error!("❌ Call {} failed: {:#?}", i, error);
-            //             }
-            //         }
-            //     }
-            //     if failure_count == 0 {
-            //         info!("🎉 All calls in the batch succeeded!");
-            //         break;
-            //     } else {
-            //         warn!("⚠️ {} calls in the batch failed", failure_count);
-            //     }
-            // }
-            // Err(e) => {
-            //     error!("Batch transaction failed: {:?}", e);
-            // }
+            // Batch parsing path is kept commented for Utility.force_batch
         }
 
         // Implement rate limiting
@@ -434,15 +375,6 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 }
 
 /// Retrieves the current recycle cost for a given network UID
-///
-/// # Arguments
-///
-/// * `client` - A reference to the blockchain client
-/// * `netuid` - The network UID to check
-///
-/// # Returns
-///
-/// A `Result` containing the recycle cost as a `u64` if successful, or an `Err` if retrieval fails
 async fn get_recycle_cost(
     client: &OnlineClient<SubstrateConfig>,
     netuid: u16,
@@ -467,7 +399,6 @@ async fn get_recycle_cost(
 }
 
 // TODO: Return UID of the registered neuron
-/// Main function to run the registration script
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging with INFO level
@@ -489,10 +420,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Parses configuration from either a config file or command line arguments
-///
-/// # Returns
-///
-/// A `Result` containing `RegistrationParams` if parsing is successful, or an `Err` if it fails
 fn parse_config() -> Result<RegistrationParams, Box<dyn std::error::Error>> {
     info!("Parsing command line arguments...");
     Ok(RegistrationParams::parse())
