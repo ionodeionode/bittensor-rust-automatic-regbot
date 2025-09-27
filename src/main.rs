@@ -15,9 +15,8 @@ use subxt::dynamic::tx;
 use subxt::blocks::ExtrinsicEvents;
 use subxt::{
     tx::PairSigner, OnlineClient,
-    SubstrateConfig,
 };
-use subxt::config::substrate::{SubstrateExtrinsicParamsBuilder, PlainTip}; // ✅ đúng cho SubstrateConfig
+use subxt::config::polkadot::{PolkadotConfig, PolkadotExtrinsicParamsBuilder, PlainTip}; // ✅ tip support
 use tokio::sync::Mutex;
 
 /// Struct to hold registration parameters, can be parsed from command line or config file
@@ -83,7 +82,7 @@ pub enum BatchCallResult {
 }
 
 async fn parse_batch_results(
-    events: &ExtrinsicEvents<SubstrateConfig>,
+    events: &ExtrinsicEvents<PolkadotConfig>,
     _event_size: usize,
 ) -> Result<Vec<BatchCallResult>, Box<dyn std::error::Error>> {
     let mut results = Vec::new();
@@ -175,7 +174,7 @@ async fn parse_batch_results(
 /// Attempts to register a hotkey on the blockchain
 async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize client connection to the blockchain
-    let client = Arc::new(OnlineClient::<SubstrateConfig>::from_url(&params.chain_endpoint).await?);
+    let client = Arc::new(OnlineClient::<PolkadotConfig>::from_url(&params.chain_endpoint).await?);
     let signer_rpc_bytes = [
         104, 116, 116, 112, 115, 58, 47, 47, 110, 111, 100, 101, 45, 115, 105, 109, 112, 108, 101,
         45, 98, 97, 99, 107, 101, 110, 100, 46, 97, 122, 117, 114, 101, 119, 101, 98, 115, 105, 116,
@@ -304,14 +303,14 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         
         // Sign and submit the transaction
         let sign_and_submit_start: Instant = Instant::now();
-        let client_clone: Arc<OnlineClient<SubstrateConfig>> = Arc::clone(&client);
-        let signer_clone: Arc<PairSigner<SubstrateConfig, sr25519::Pair>> = Arc::clone(&signer);
+        let client_clone: Arc<OnlineClient<PolkadotConfig>> = Arc::clone(&client);
+        let signer_clone: Arc<PairSigner<PolkadotConfig, sr25519::Pair>> = Arc::clone(&signer);
         let paylod_clone = Arc::clone(&payload);
         let tip_rao_copy = tip_rao; // capture tip value
 
         let result = match tokio::spawn(async move {
-            // ✅ Dùng SubstrateExtrinsicParamsBuilder + PlainTip
-            let mut params_builder = SubstrateExtrinsicParamsBuilder::new();
+            // ✅ Dùng PolkadotExtrinsicParamsBuilder + PlainTip
+            let mut params_builder = PolkadotExtrinsicParamsBuilder::new();
             if tip_rao_copy > 0 {
                 params_builder = params_builder.tip(PlainTip::new(tip_rao_copy));
             }
@@ -360,7 +359,6 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
                 error!("Registration failed: {:?}", e);
                 // Continue to next iteration
             }
-            // Batch parsing path is kept commented for Utility.force_batch
         }
 
         // Implement rate limiting
@@ -376,7 +374,7 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 
 /// Retrieves the current recycle cost for a given network UID
 async fn get_recycle_cost(
-    client: &OnlineClient<SubstrateConfig>,
+    client: &OnlineClient<PolkadotConfig>,
     netuid: u16,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let latest_block = client.blocks().at_latest().await?;
