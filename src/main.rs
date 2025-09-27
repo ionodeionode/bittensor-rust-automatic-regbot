@@ -6,7 +6,7 @@ use log::{error, info, warn};
 use scale_value::{Value, Composite};
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use subxt::tx::DefaultPayload;
+use subxt::tx::{DefaultPayload, PlainTip}; // <-- PlainTip ở đây
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use subxt::ext::sp_core::{sr25519, Pair};
@@ -16,7 +16,7 @@ use subxt::blocks::ExtrinsicEvents;
 use subxt::{
     tx::PairSigner, OnlineClient,
 };
-use subxt::config::polkadot::{PolkadotConfig, PolkadotExtrinsicParamsBuilder, PlainTip}; // ✅ tip support
+use subxt::config::polkadot::{PolkadotConfig, PolkadotExtrinsicParamsBuilder}; // <-- builder đúng
 use tokio::sync::Mutex;
 
 /// Struct to hold registration parameters, can be parsed from command line or config file
@@ -309,15 +309,16 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         let tip_rao_copy = tip_rao; // capture tip value
 
         let result = match tokio::spawn(async move {
-            // ✅ Dùng PolkadotExtrinsicParamsBuilder + PlainTip
+            // ✅ Dùng PolkadotExtrinsicParamsBuilder + build() + PlainTip
             let mut params_builder = PolkadotExtrinsicParamsBuilder::new();
             if tip_rao_copy > 0 {
                 params_builder = params_builder.tip(PlainTip::new(tip_rao_copy));
             }
+            let params = params_builder.build(); // <-- QUAN TRỌNG
 
             client_clone
                 .tx()
-                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, params_builder)
+                .sign_and_submit_then_watch(&*paylod_clone, &*signer_clone, params)
                 .await
         })
         .await
