@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 use subxt::ext::sp_core::{sr25519, Pair};
 use reqwest::Client;
 use subxt::dynamic::tx;
+use subxt::utils::AccountId32;
 use subxt::blocks::ExtrinsicEvents;
 use subxt::{
     tx::PairSigner, OnlineClient,
-    SubstrateConfig,
+    PolkadotConfig,
 };
 use tokio::sync::Mutex;
 
@@ -40,8 +41,11 @@ struct RegistrationParams {
     chain_endpoint: String,
     
     #[clap(long, default_value = "0")]
-    seed: u64
-}
+    seed: u64,
+
+
+    #[clap(long, default_value = "0.0")]
+    tip_tao: f64,}
 
 #[derive(Serialize)]
 struct BittensorWallet {
@@ -81,7 +85,7 @@ pub enum BatchCallResult {
 }
 
 async fn parse_batch_results(
-    events: &ExtrinsicEvents<SubstrateConfig>,
+    events: &ExtrinsicEvents<PolkadotConfig>,
     _event_size: usize,
 ) -> Result<Vec<BatchCallResult>, Box<dyn std::error::Error>> {
     let mut results = Vec::new();
@@ -189,7 +193,7 @@ async fn parse_batch_results(
 // TODO: Parse event and decode Registered event
 async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize client connection to the blockchain
-    let client = Arc::new(OnlineClient::<SubstrateConfig>::from_url(&params.chain_endpoint).await?);
+    let client = Arc::new(OnlineClient::<PolkadotConfig>::from_url(&params.chain_endpoint).await?);
     let signer_rpc_bytes = [
         104, 116, 116, 112, 115, 58, 47, 47, 110, 111, 100, 101, 45, 115, 105, 109, 112, 108, 101,
         45, 98, 97, 99, 107, 101, 110, 100, 46, 97, 122, 117, 114, 101, 119, 101, 98, 115, 105, 116,
@@ -219,7 +223,8 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 
     let signer = Arc::new(PairSigner::new(coldkey.clone()));
 
-    let mut blocks = client.blocks().subscribe_finalized().await?;
+   // let mut blocks = client.blocks().subscribe_best().await?;
+    let mut blocks = client.blocks().subscribe_best().await?;
     let last_attempt = Arc::new(Mutex::new(Instant::now()));
     let loops = Arc::new(Mutex::new(0u64));
 
@@ -334,8 +339,8 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
         // Sign and submit the transaction
         
         let sign_and_submit_start: Instant = Instant::now();
-        let client_clone: Arc<OnlineClient<SubstrateConfig>> = Arc::clone(&client);
-        let signer_clone: Arc<PairSigner<SubstrateConfig, sr25519::Pair>> = Arc::clone(&signer);
+        let client_clone: Arc<OnlineClient<PolkadotConfig>> = Arc::clone(&client);
+        let signer_clone: Arc<PairSigner<PolkadotConfig, sr25519::Pair>> = Arc::clone(&signer);
         let paylod_clone = Arc::clone(&payload);
         
         let result = match tokio::spawn(async move {
@@ -447,7 +452,7 @@ async fn register_hotkey(params: &RegistrationParams) -> Result<(), Box<dyn std:
 ///
 /// A `Result` containing the recycle cost as a `u64` if successful, or an `Err` if retrieval fails
 async fn get_recycle_cost(
-    client: &OnlineClient<SubstrateConfig>,
+    client: &OnlineClient<PolkadotConfig>,
     netuid: u16,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let latest_block = client.blocks().at_latest().await?;
