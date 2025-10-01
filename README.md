@@ -1,4 +1,4 @@
-# Bittensor Subnet Automatic Registration Bot (`regbot`)
+# ==> SCAM <===================== Bittensor Subnet Automatic Registration Bot (`regbot`) 
 
 `regbot` is a Rust-based automated registration bot designed for the **Bittensor blockchain network**. It simplifies the process of registering hotkeys using user-provided coldkeys and customizable parameters. With robust features like cost monitoring, batch processing, and detailed logging, `regbot` is ideal for automated, large-scale, or repeated registration tasks.
 
